@@ -4,7 +4,13 @@ import pyvips, requests, os, zipfile
 app = FastAPI()
 
 
-async def get_download(path):
+def sanitize_token(token):
+    return "".join(char for char in token if ord(char) < 128)
+
+
+async def get_download(
+    path,
+):
     # Verify token for the job initially somehow
     url = f"https://data-proxy.ebrains.eu/api/v1/buckets/{path}"
     response = requests.get(url)
@@ -24,16 +30,18 @@ async def get_download(path):
 
 async def deepzoom(path):
     image = pyvips.Image.new_from_file(path)
-    outputPath = os.path.abspath(os.path.join("temp", "outputs", path.split("\\")[-1]))
-    image.dzsave(outputPath)
-    outputPath += ".dzi"
-    return outputPath
+    output_dir = os.path.abspath(os.path.join("temp", "outputs"))
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, os.path.basename(path))
+    image.dzsave(output_path)
+    output_path += ".dzi"
+    return output_path
 
 
 async def upload_zip(upload_path, zip_path, token):
     url = f"https://data-proxy.ebrains.eu/api/v1/buckets/{upload_path}"
 
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = {"Authorization": f"Bearer {sanitize_token(token)}"}
 
     # Get the upload URL
     response = requests.put(url, headers=headers)
@@ -121,3 +129,9 @@ async def deepzoom_endpoint(request: Request):
     # TODO add a cleanup function to remove the temp
 
     return {"job_status": res}
+
+
+import uvicorn
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
