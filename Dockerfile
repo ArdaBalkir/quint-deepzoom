@@ -11,10 +11,9 @@ COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
+RUN mkdir -p /app/temp/downloads /app/temp/outputs && chmod -R 777 /app/temp
 
 COPY . .
-
-RUN mkdir -p temp/downloads temp/outputs
 
 EXPOSE 8000
 
