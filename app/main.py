@@ -31,7 +31,6 @@ async def get_download(path, token):
     response = requests.get(url, headers=headers)
 
     print(response.status_code)
-    print(response.json())
 
     if response.status_code == 200:
         download_url = response.json().get("url")
@@ -42,10 +41,13 @@ async def get_download(path, token):
         filename = os.path.basename(path)
         filepath = os.path.join("temp/downloads", filename)
 
-        download_response = requests.get(download_url)
+        # Stream the download in chunks to avoid memory issues
+        download_response = requests.get(download_url, stream=True)
         if download_response.status_code == 200:
             with open(filepath, "wb") as file:
-                file.write(download_response.content)
+                for chunk in download_response.iter_content(chunk_size=8192):
+                    if chunk:  # filter out keep-alive new chunks
+                        file.write(chunk)
             return os.path.relpath(filepath)
         else:
             raise Exception(
