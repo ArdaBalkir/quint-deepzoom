@@ -22,6 +22,8 @@ app.add_middleware(
 )
 
 # TODO Threaded test for performance
+# TODO Add origins
+# TODO Add token and user validation
 
 
 async def get_download(path, token):
@@ -66,7 +68,7 @@ async def get_download(path, token):
 async def deepzoom(path):
     """
     Creates a DeepZoom pyramid from the image file specified
-    Run in a thread pool since pyvips operations are CPU-bound
+    Runs in a thread pool since pyvips operations are CPU-bound
     """
 
     def process_image():
@@ -119,7 +121,7 @@ async def upload_zip(upload_path, zip_path, token):
 async def zip_pyramid(path):
     """
     Function zips the pyramid files with a .dzip extension
-    Run in a thread pool since compression is CPU-bound
+    Runs in a thread pool since compression is CPU-bound
     """
 
     def create_zip():
