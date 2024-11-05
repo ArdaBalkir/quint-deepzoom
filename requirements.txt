@@ -30,5 +30,3 @@ typing_extensions==4.12.2
 urllib3==2.2.3
 uvicorn==0.31.0
 watchfiles==0.24.0
-websockets==13.1
-yarl==1.17.1

@@ -8,6 +8,9 @@ import aiofiles
 import asyncio
 from aiofiles.os import makedirs, remove, path
 import shutil
+from datetime import datetime, timedelta
+import uuid
+from typing import Dict, Optional
 
 app = FastAPI()
 
@@ -26,7 +29,124 @@ app.add_middleware(
 # TODO Add token and user validation
 
 
-async def get_download(path, token):
+class TaskStore:
+    """
+    Manages tasks and their statuses
+    Default TTL is 24 hours
+    """
+
+    def __init__(self, ttl_hours=24):
+        self.tasks: Dict[str, dict] = {}
+        self.ttl = timedelta(hours=ttl_hours)
+
+    def add_task(self, task_id: str, task_data: dict):
+        """
+        Adds a new task to the store
+        Initial current_step is "initialized" which should be updated
+        """
+        self.tasks[task_id] = {
+            **task_data,
+            "created_at": datetime.now(),
+            "status": "pending",
+            "current_step": "initialized",
+            "step_details": None,
+            "result": None,
+            "error": None,
+        }
+
+    def update_task(self, task_id: str, updates: dict):
+        if task_id in self.tasks:
+            self.tasks[task_id].update(updates)
+
+    def get_task(self, task_id: str) -> Optional[dict]:
+        return self.tasks.get(task_id)
+
+    def cleanup_old_tasks(self):
+        now = datetime.now()
+        self.tasks = {
+            task_id: task
+            for task_id, task in self.tasks.items()
+            if now - task["created_at"] < self.ttl
+        }
+
+
+class TaskManager:
+    def __init__(self):
+        self.semaphore = asyncio.Semaphore(4)
+        self.task_store = TaskStore()
+
+    async def add_task(self, task_id: str, path: str, target_path: str, token: str):
+        self.task_store.add_task(task_id, {"path": path, "target_path": target_path})
+        asyncio.create_task(self._process_task(task_id, path, target_path, token))
+        return task_id
+
+    async def _process_task(
+        self, task_id: str, path: str, target_path: str, token: str
+    ):
+        async with self.semaphore:
+            try:
+                # Download
+                self.task_store.update_task(
+                    task_id,
+                    {
+                        "status": "processing",
+                        "current_step": "downloading",
+                    },
+                )
+                download_path = await get_download(path, token)
+
+                # DeepZoom
+                self.task_store.update_task(
+                    task_id, {"current_step": "creating_deepzoom"}
+                )
+                dzi_path = await deepzoom(download_path)
+
+                # Zip
+                self.task_store.update_task(task_id, {"current_step": "compressing"})
+                zip_path = await zip_pyramid(dzi_path)
+
+                # Upload
+                self.task_store.update_task(task_id, {"current_step": "uploading"})
+                upload_filename = os.path.basename(zip_path)
+                result = await upload_zip(
+                    f"{target_path}/{upload_filename}", zip_path, token
+                )
+
+                # Success
+                self.task_store.update_task(
+                    task_id,
+                    {
+                        "status": "completed",
+                        "current_step": "completed",
+                        "result": result,
+                    },
+                )
+
+                # Cleanup
+                await cleanup_files(
+                    os.path.join("temp/downloads", os.path.basename(path)),
+                    dzi_path,
+                    zip_path,
+                )
+
+            # TODO Add explicit response to users depending on the error
+            except Exception as e:
+                self.task_store.update_task(
+                    task_id,
+                    {"status": "failed", "current_step": "failed", "error": str(e)},
+                )
+                await cleanup_files(
+                    os.path.join("temp/downloads", os.path.basename(path)),
+                    dzi_path if "dzi_path" in locals() else None,
+                    zip_path if "zip_path" in locals() else None,
+                )
+
+
+# Initialize global task manager
+task_manager = TaskManager()
+
+
+async def get_download(path: str, token: str):
     """
     Asynchronous definition for downloading the file from Ebrains hosted bucket
     """
@@ -65,7 +185,7 @@ async def get_download(path, token):
                 )
 
 
-async def deepzoom(path):
+async def deepzoom(path: str):
     """
     Creates a DeepZoom pyramid from the image file specified
     Runs in a thread pool since pyvips operations are CPU-bound
@@ -83,7 +203,7 @@ async def deepzoom(path):
     return await asyncio.to_thread(process_image)
 
 
-async def upload_zip(upload_path, zip_path, token):
+async def upload_zip(upload_path: str, zip_path: str, token: str):
     """
     Asynchronous definition for uploading zip file to EBrains hosted bucket
     """
@@ -118,7 +238,7 @@ async def upload_zip(upload_path, zip_path, token):
                         )
 
 
-async def zip_pyramid(path):
+async def zip_pyramid(path: str):
     """
     Function zips the pyramid files with a .dzip extension
     Runs in a thread pool since compression is CPU-bound
@@ -143,7 +263,7 @@ async def zip_pyramid(path):
     return await asyncio.to_thread(create_zip)
 
 
-async def cleanup_files(download_path, dzi_path, zip_path):
+async def cleanup_files(download_path: str, dzi_path: str, zip_path: str):
     """
     Asynchronously remove temporary files after processing
     """
@@ -170,68 +290,41 @@ async def root():
     return {"message": "Hello World"}
 
 
-@app.post("/deepzoom")
+@app.get("/deepzoom/health")
+async def health():
+    return {"status": "I'm alive!"}
+
+
+@app.post("/deepzoom", status_code=202)
 async def deepzoom_endpoint(request: Request):
     data = await request.json()
 
-    print(f"Received a request")
-
-    path = data.get("path")
-    target_path = data.get("target_path")
-    token = data.get("token")
-
     # Parameter validation
-    missing_params = []
-    if not path:
-        missing_params.append("path")
-    if not target_path:
-        missing_params.append("target_path")
-    if not token:
-        missing_params.append("token")
+    for param in ["path", "target_path", "token"]:
+        if not data.get(param):
+            raise HTTPException(
+                status_code=400, detail=f"Missing required parameter: {param}"
+            )
+        if not isinstance(data[param], str) or not data[param].strip():
+            raise HTTPException(
+                status_code=400, detail=f"{param} must be a non-empty string"
+            )
 
-    if missing_params:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Missing required parameters: {', '.join(missing_params)}",
-        )
+    task_id = str(uuid.uuid4())
+    await task_manager.add_task(
+        task_id, data["path"], data["target_path"], data["token"]
+    )
 
-    if not isinstance(path, str) or not path.strip():
-        raise HTTPException(status_code=400, detail="Path must be a non-empty string")
-    if not isinstance(target_path, str) or not target_path.strip():
-        raise HTTPException(
-            status_code=400, detail="Target path must be a non-empty string"
-        )
-    if not isinstance(token, str) or not token.strip():
-        raise HTTPException(status_code=400, detail="Token must be a non-empty string")
+    return {
+        "task_id": task_id,
+        "status": "accepted",
+        "status_endpoint": f"/deepzoom/status/{task_id}",
+    }
 
-    try:
-        print(f"Starting download of {path}")
-        download_path = await get_download(path, token)
-        print(f"Downloaded file to {download_path}")
 
-        print(f"DeepZoom process started for {download_path}")
-        dzi_path = await deepzoom(download_path)
-        print(f"DeepZoom process completed for {download_path}")
-
-        print(f"Zip process started for {dzi_path}")
-        zip_path = await zip_pyramid(dzi_path)
-        print(f"Zip process completed for {dzi_path}")
-
-        upload_filename = os.path.basename(zip_path)
-        res = await upload_zip(f"{target_path}/{upload_filename}", zip_path, token)
-
-        print("Upload status: ", res)
-
-        await cleanup_files(
-            os.path.join("temp/downloads", os.path.basename(path)), dzi_path, zip_path
-        )
-
-        return {"job_status": res}
-
-    except Exception as e:
-        await cleanup_files(
-            os.path.join("temp/downloads", os.path.basename(path)),
-            dzi_path if "dzi_path" in locals() else None,
-            zip_path if "zip_path" in locals() else None,
-        )
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/deepzoom/status/{task_id}")
+async def get_task_status(task_id: str):
+    task = task_manager.task_store.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
