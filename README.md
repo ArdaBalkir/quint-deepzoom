@@ -14,9 +14,9 @@ This application is an asynchronous endpoint for creating deep zoom image file f
 
 ```json
 {
-    "path" : str,
-    "target_path" : str,
-    "token" : str
+    "path" : "str",
+    "target_path" : "str",
+    "token" : "str"
 }
   ```
 
