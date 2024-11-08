@@ -14,7 +14,10 @@ from typing import Dict, Optional
 
 app = FastAPI()
 
-origins = ["*"]
+# Example env var format:
+# CORS_ORIGINS=http://localhost:3000,https://example.com,https://api.example.com
+
+origins = os.getenv("CORS_ORIGINS", "*").split(",")
 
 app.add_middleware(
     CORSMiddleware,
@@ -25,7 +28,6 @@ app.add_middleware(
 )
 
 # TODO Threaded test for performance
-# TODO Add origins
 # TODO Add token and user validation
 
 
