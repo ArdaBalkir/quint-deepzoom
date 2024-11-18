@@ -72,7 +72,7 @@ class TaskStore:
 
 class TaskManager:
     def __init__(self):
-        self.semaphore = asyncio.Semaphore(4)
+        self.semaphore = asyncio.Semaphore(6)
         self.task_store = TaskStore()
 
     async def add_task(self, task_id: str, path: str, target_path: str, token: str):
