@@ -1,6 +1,8 @@
 ## DeepZoom API
 
 
+[![CodeFactor](https://www.codefactor.io/repository/github/ardabalkir/quint-deepzoom/badge)](https://www.codefactor.io/repository/github/ardabalkir/quint-deepzoom)
+
 ### Pyramiding
 This application is an asynchronous endpoint for creating deep zoom image file formats for images, for use with EBrains related software. Main dependencies are `asyncio, aiofiles, aiohttp` and `fastapi`.
 
