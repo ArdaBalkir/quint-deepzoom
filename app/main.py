@@ -11,6 +11,21 @@ import shutil
 from datetime import datetime, timedelta
 import uuid
 from typing import Dict, Optional
+import logging
+import sys
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler("deepzoom.log")],
+)
+logger = logging.getLogger(__name__)
+
+# Constants
+CHUNK_SIZE = 16 * 1024 * 1024
+# To increase download stream speed
+
 
 app = FastAPI()
 
@@ -38,12 +53,9 @@ class TaskStore:
     def __init__(self, ttl_hours=24):
         self.tasks: Dict[str, dict] = {}
         self.ttl = timedelta(hours=ttl_hours)
+        logger.info("TaskStore initialized with TTL: %d hours", ttl_hours)
 
     def add_task(self, task_id: str, task_data: dict):
-        """
-        Adds a new task to the store
-        Initial current_step is "initialized" which should be updated
-        """
         self.tasks[task_id] = {
             **task_data,
             "created_at": datetime.now(),
@@ -52,28 +64,35 @@ class TaskStore:
             "step_details": None,
             "result": None,
             "error": None,
+            "progress": 0,
         }
+        logger.info(f"Added new task: {task_id}")
 
     def update_task(self, task_id: str, updates: dict):
         if task_id in self.tasks:
             self.tasks[task_id].update(updates)
+            logger.debug(f"Updated task {task_id}: {updates}")
 
     def get_task(self, task_id: str) -> Optional[dict]:
         return self.tasks.get(task_id)
 
     def cleanup_old_tasks(self):
+        before_count = len(self.tasks)
         now = datetime.now()
         self.tasks = {
             task_id: task
             for task_id, task in self.tasks.items()
             if now - task["created_at"] < self.ttl
         }
+        after_count = len(self.tasks)
+        logger.info(f"Cleaned up {before_count - after_count} old tasks")
 
 
 class TaskManager:
     def __init__(self):
-        self.semaphore = asyncio.Semaphore(4)
+        self.semaphore = asyncio.Semaphore(6)
         self.task_store = TaskStore()
+        logger.info("TaskManager initialized")
 
     async def add_task(self, task_id: str, path: str, target_path: str, token: str):
         self.task_store.add_task(task_id, {"path": path, "target_path": target_path})
@@ -85,28 +104,36 @@ class TaskManager:
     ):
         async with self.semaphore:
             try:
+                logger.info(f"Starting task {task_id} processing")
                 # Download
                 self.task_store.update_task(
                     task_id,
                     {
                         "status": "processing",
                         "current_step": "downloading",
+                        "progress": 0,
                     },
                 )
-                download_path = await get_download(path, token)
+                download_path = await get_download(
+                    path, token, task_id, self.task_store
+                )
 
                 # DeepZoom
                 self.task_store.update_task(
-                    task_id, {"current_step": "creating_deepzoom"}
+                    task_id, {"current_step": "creating_deepzoom", "progress": 25}
                 )
                 dzi_path = await deepzoom(download_path)
 
                 # Zip
-                self.task_store.update_task(task_id, {"current_step": "compressing"})
+                self.task_store.update_task(
+                    task_id, {"current_step": "compressing", "progress": 50}
+                )
                 zip_path = await zip_pyramid(dzi_path)
 
                 # Upload
-                self.task_store.update_task(task_id, {"current_step": "uploading"})
+                self.task_store.update_task(
+                    task_id, {"current_step": "uploading", "progress": 75}
+                )
                 upload_filename = os.path.basename(zip_path)
                 result = await upload_zip(
                     f"{target_path}/{upload_filename}", zip_path, token
@@ -119,8 +146,10 @@ class TaskManager:
                         "status": "completed",
                         "current_step": "completed",
                         "result": result,
+                        "progress": 100,
                     },
                 )
+                logger.info(f"Task {task_id} completed successfully")
 
                 # Cleanup
                 await cleanup_files(
@@ -129,11 +158,16 @@ class TaskManager:
                     zip_path,
                 )
 
-            # TODO Add explicit response to users depending on the error
             except Exception as e:
+                logger.error(f"Task {task_id} failed: {str(e)}", exc_info=True)
                 self.task_store.update_task(
                     task_id,
-                    {"status": "failed", "current_step": "failed", "error": str(e)},
+                    {
+                        "status": "failed",
+                        "current_step": "failed",
+                        "error": str(e),
+                        "progress": 0,
+                    },
                 )
                 await cleanup_files(
                     os.path.join("temp/downloads", os.path.basename(path)),
@@ -146,15 +180,14 @@ class TaskManager:
 task_manager = TaskManager()
 
 
-async def get_download(path: str, token: str):
+async def get_download(path: str, token: str, task_id: str, task_store: TaskStore):
     """
-    Asynchronous definition for downloading the file from Ebrains hosted bucket
+    Asynchronous definition for downloading file from EBrains hosted bucket
     """
     url = f"https://data-proxy.ebrains.eu/api/v1/buckets/{path}?redirect=false"
     headers = {"Authorization": f"Bearer {token}"}
 
     async with aiohttp.ClientSession() as session:
-        # Get the download URL
         async with session.get(url, headers=headers) as response:
             if response.status == 200:
                 data = await response.json()
@@ -166,14 +199,27 @@ async def get_download(path: str, token: str):
                 filename = os.path.basename(path)
                 filepath = os.path.join("temp/downloads", filename)
 
-                # Stream the download asynchronously
                 async with session.get(download_url) as download_response:
                     if download_response.status == 200:
+                        total_size = int(
+                            download_response.headers.get("content-length", 0)
+                        )
+                        downloaded_size = 0
+
                         async with aiofiles.open(filepath, "wb") as file:
                             async for chunk in download_response.content.iter_chunked(
-                                8192
+                                CHUNK_SIZE
                             ):
                                 await file.write(chunk)
+                                downloaded_size += len(chunk)
+                                progress = (
+                                    int((downloaded_size / total_size) * 25)
+                                    if total_size
+                                    else 0
+                                )
+                                task_store.update_task(task_id, {"progress": progress})
+
+                        logger.info(f"Download completed for task {task_id}")
                         return os.path.relpath(filepath)
                     else:
                         raise Exception(
@@ -297,34 +343,50 @@ async def health():
 
 @app.post("/deepzoom", status_code=202)
 async def deepzoom_endpoint(request: Request):
-    data = await request.json()
+    try:
+        data = await request.json()
+        logger.info("Received deepzoom request")
 
-    # Parameter validation
-    for param in ["path", "target_path", "token"]:
-        if not data.get(param):
-            raise HTTPException(
-                status_code=400, detail=f"Missing required parameter: {param}"
-            )
-        if not isinstance(data[param], str) or not data[param].strip():
-            raise HTTPException(
-                status_code=400, detail=f"{param} must be a non-empty string"
-            )
+        for param in ["path", "target_path", "token"]:
+            if not data.get(param):
+                logger.error(f"Missing parameter: {param}")
+                raise HTTPException(
+                    status_code=400, detail=f"Missing required parameter: {param}"
+                )
+            if not isinstance(data[param], str) or not data[param].strip():
+                logger.error(f"Invalid parameter: {param}")
+                raise HTTPException(
+                    status_code=400, detail=f"{param} must be a non-empty string"
+                )
 
-    task_id = str(uuid.uuid4())
-    await task_manager.add_task(
-        task_id, data["path"], data["target_path"], data["token"]
-    )
+        task_id = str(uuid.uuid4())
+        logger.info(f"Creating task {task_id}")
 
-    return {
-        "task_id": task_id,
-        "status": "accepted",
-        "status_endpoint": f"/deepzoom/status/{task_id}",
-    }
+        await task_manager.add_task(
+            task_id, data["path"], data["target_path"], data["token"]
+        )
+
+        response = {
+            "task_id": task_id,
+            "status": "accepted",
+            "status_endpoint": f"/deepzoom/status/{task_id}",
+        }
+        return response
+
+    except Exception as e:
+        logger.error(f"Error processing request: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/deepzoom/status/{task_id}")
 async def get_task_status(task_id: str):
-    task = task_manager.task_store.get_task(task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task
+    try:
+        logger.debug(f"Checking status for task: {task_id}")
+        task = task_manager.task_store.get_task(task_id)
+        if not task:
+            logger.warning(f"Task not found: {task_id}")
+            raise HTTPException(status_code=404, detail="Task not found")
+        return task
+    except Exception as e:
+        logger.error(f"Error getting task status: {str(e)}", exc_info=True)
+        raise
