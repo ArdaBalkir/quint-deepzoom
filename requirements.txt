@@ -32,3 +32,4 @@ uvicorn==0.31.0
 watchfiles==0.24.0
 websockets==13.1
 yarl==1.17.1
+neuroglancer-scripts==1.2.0

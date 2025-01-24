@@ -14,6 +14,8 @@ from typing import Dict, Optional
 import logging
 import sys
 
+from app.workflow import Workflow
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -178,6 +180,7 @@ class TaskManager:
 
 # Initialize global task manager
 task_manager = TaskManager()
+workflow_forever_dict: Dict[str, Workflow] = {}
 
 
 async def get_download(path: str, token: str, task_id: str, task_store: TaskStore):
@@ -362,9 +365,19 @@ async def deepzoom_endpoint(request: Request):
         task_id = str(uuid.uuid4())
         logger.info(f"Creating task {task_id}")
 
-        await task_manager.add_task(
-            task_id, data["path"], data["target_path"], data["token"]
-        )
+        path = data["path"]
+        target_path = data["target_path"]
+        token = data["token"]
+
+        if data.get("ng_flag"):
+            bucketname, dstpath = target_path.split("/", 1)
+            workflow = Workflow.convert_ng(task_id, path, bucketname, dstpath, token)
+            workflow_forever_dict[task_id] = workflow
+            workflow.start()
+        else:
+            await task_manager.add_task(
+                task_id, path, target_path, token
+            )
 
         response = {
             "task_id": task_id,
@@ -382,6 +395,8 @@ async def deepzoom_endpoint(request: Request):
 async def get_task_status(task_id: str):
     try:
         logger.debug(f"Checking status for task: {task_id}")
+        if task_id in workflow_forever_dict:
+            return workflow_forever_dict[task_id].workflow_def.status
         task = task_manager.task_store.get_task(task_id)
         if not task:
             logger.warning(f"Task not found: {task_id}")
