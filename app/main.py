@@ -47,10 +47,10 @@ app.add_middleware(
 class TaskStore:
     """
     Manages tasks and their statuses
-    Default TTL is 24 hours
+    Default TTL is 72 hours
     """
 
-    def __init__(self, ttl_hours=24):
+    def __init__(self, ttl_hours=72):
         self.tasks: Dict[str, dict] = {}
         self.ttl = timedelta(hours=ttl_hours)
         logger.info("TaskStore initialized with TTL: %d hours", ttl_hours)
@@ -390,3 +390,46 @@ async def get_task_status(task_id: str):
     except Exception as e:
         logger.error(f"Error getting task status: {str(e)}", exc_info=True)
         raise
+
+
+# Reporting related dashboard stuff
+
+
+# Currently to provide internal access only
+async def verify_ebrains_token(token: str) -> bool:
+    """Verify token and check if email ends with @medisin.uio.no"""
+    url = "https://iam.ebrains.eu/auth/realms/hbp/protocol/openid-connect/userinfo"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            url, headers={"Authorization": f"Bearer {token}"}
+        ) as response:
+            if response.status == 200:
+                data = await response.json()
+                return data.get("email", "").endswith("@medisin.uio.no")
+    return False
+
+
+@app.get("/deepzoom/tasks")
+async def get_all_tasks(request: Request):
+    try:
+        # Get token from Authorization header
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Missing or invalid token")
+
+        token = auth_header.split(" ")[1]
+
+        is_authorized = await verify_ebrains_token(token)
+        if not is_authorized:
+            raise HTTPException(status_code=403, detail="Unauthorized email domain")
+
+        task_manager.task_store.cleanup_old_tasks()
+
+        return {
+            "tasks": task_manager.task_store.tasks,
+            "total": len(task_manager.task_store.tasks),
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting tasks: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

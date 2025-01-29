@@ -1,0 +1,31 @@
+2025-01-29 10:50:41,648 - app.main - INFO - TaskStore initialized with TTL: 24 hours
+2025-01-29 10:50:41,648 - app.main - INFO - TaskManager initialized
+2025-01-29 10:51:07,694 - app.main - ERROR - Error getting tasks: 401: Missing or invalid token
+Traceback (most recent call last):
+  File "C:\Users\ardab\Documents\Projects\Online QUINT\deepzoomservice\app\main.py", line 418, in get_all_tasks
+    raise HTTPException(status_code=401, detail="Missing or invalid token")
+fastapi.exceptions.HTTPException: 401: Missing or invalid token
+2025-01-29 10:51:45,720 - app.main - INFO - Cleaned up 0 old tasks
+2025-01-29 10:54:45,603 - app.main - INFO - Received deepzoom request
+2025-01-29 10:54:45,606 - app.main - INFO - Creating task 8d2827dc-d060-4f09-a253-daed28eef417
+2025-01-29 10:54:45,606 - app.main - INFO - Added new task: 8d2827dc-d060-4f09-a253-daed28eef417
+2025-01-29 10:54:45,606 - app.main - INFO - Starting task 8d2827dc-d060-4f09-a253-daed28eef417 processing
+2025-01-29 10:54:46,087 - app.main - INFO - Download completed for task 8d2827dc-d060-4f09-a253-daed28eef417
+2025-01-29 10:54:46,151 - pyvips - INFO - VIPS: threadpool completed with 4 workers
+2025-01-29 10:54:46,159 - pyvips - INFO - VIPS: threadpool completed with 7 workers
+2025-01-29 10:54:46,161 - pyvips - INFO - VIPS: threadpool completed with 7 workers
+2025-01-29 10:54:46,162 - pyvips - INFO - VIPS: threadpool completed with 3 workers
+2025-01-29 10:54:46,163 - pyvips - INFO - VIPS: threadpool completed with 7 workers
+2025-01-29 10:54:46,168 - pyvips - INFO - VIPS: threadpool completed with 7 workers
+2025-01-29 10:54:46,175 - pyvips - INFO - VIPS: threadpool completed with 7 workers
+2025-01-29 10:54:46,177 - pyvips - INFO - VIPS: threadpool completed with 7 workers
+2025-01-29 10:54:46,182 - pyvips - INFO - VIPS: threadpool completed with 6 workers
+2025-01-29 10:54:46,184 - pyvips - INFO - VIPS: threadpool completed with 4 workers
+2025-01-29 10:54:46,188 - pyvips - INFO - VIPS: threadpool completed with 3 workers
+2025-01-29 10:54:46,191 - pyvips - INFO - VIPS: threadpool completed with 2 workers
+2025-01-29 10:54:46,193 - pyvips - INFO - VIPS: threadpool completed with 2 workers
+2025-01-29 10:54:46,197 - pyvips - INFO - VIPS: threadpool completed with 2 workers
+2025-01-29 10:54:46,202 - pyvips - INFO - VIPS: threadpool completed with 2 workers
+2025-01-29 10:54:46,205 - pyvips - INFO - VIPS: threadpool completed with 2 workers
+2025-01-29 10:54:47,981 - app.main - INFO - Task 8d2827dc-d060-4f09-a253-daed28eef417 completed successfully
+2025-01-29 10:54:57,508 - app.main - INFO - Cleaned up 0 old tasks
