@@ -31,6 +31,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 WORKDIR /app
 RUN mkdir -p /app/temp/downloads /app/temp/outputs && \
     chmod -R 777 /app/temp
+RUN mkdir -p /data && chmod 777 /data
+VOLUME [ "/data" ]
 
 # Copy application code
 COPY . .

@@ -23,9 +23,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constants
-CHUNK_SIZE = 16 * 1024 * 1024
+DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(
+    total=3600,  # 1 hour total timeout, mainly an issue with large file downloads
+    connect=60,  # 60 seconds connect timeout
+    sock_connect=60,  # 60 seconds to establish connection
+    sock_read=300,  # 5 minutes socket read timeout
+)
+CHUNK_SIZE = 32 * 1024 * 1024
 # To increase download stream speed
-
+DATA_ROOT = "/data"
+DOWNLOADS_DIR = os.path.join(DATA_ROOT, "downloads")
+OUTPUTS_DIR = os.path.join(DATA_ROOT, "outputs")
 
 app = FastAPI()
 
@@ -47,10 +55,10 @@ app.add_middleware(
 class TaskStore:
     """
     Manages tasks and their statuses
-    Default TTL is 24 hours
+    Default TTL is 72 hours
     """
 
-    def __init__(self, ttl_hours=24):
+    def __init__(self, ttl_hours=72):
         self.tasks: Dict[str, dict] = {}
         self.ttl = timedelta(hours=ttl_hours)
         logger.info("TaskStore initialized with TTL: %d hours", ttl_hours)
@@ -183,52 +191,80 @@ task_manager = TaskManager()
 async def get_download(path: str, token: str, task_id: str, task_store: TaskStore):
     """
     Asynchronous definition for downloading file from EBrains hosted bucket
+    Total download time out is 1 hour
     """
     url = f"https://data-proxy.ebrains.eu/api/v1/buckets/{path}?redirect=false"
     headers = {"Authorization": f"Bearer {token}"}
 
     async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers) as response:
-            if response.status == 200:
-                data = await response.json()
-                download_url = data.get("url")
-                if not download_url:
-                    raise Exception("Download URL not provided in response")
+        try:
+            async with session.get(
+                url, headers=headers, timeout=DOWNLOAD_TIMEOUT
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    download_url = data.get("url")
+                    if not download_url:
+                        raise Exception("Download URL not provided in response")
 
-                await makedirs("temp/downloads", exist_ok=True)
-                filename = os.path.basename(path)
-                filepath = os.path.join("temp/downloads", filename)
+                    await makedirs(DOWNLOADS_DIR, exist_ok=True)
+                    filename = os.path.basename(path)
+                    filepath = os.path.join(DOWNLOADS_DIR, filename)
 
-                async with session.get(download_url) as download_response:
-                    if download_response.status == 200:
-                        total_size = int(
-                            download_response.headers.get("content-length", 0)
-                        )
-                        downloaded_size = 0
+                    async with session.get(
+                        download_url, timeout=DOWNLOAD_TIMEOUT
+                    ) as download_response:
+                        if download_response.status == 200:
+                            total_size = int(
+                                download_response.headers.get("content-length", 0)
+                            )
+                            downloaded_size = 0
+                            logger.info(
+                                f"Starting download of {filename} ({total_size} bytes)"
+                            )
 
-                        async with aiofiles.open(filepath, "wb") as file:
-                            async for chunk in download_response.content.iter_chunked(
-                                CHUNK_SIZE
-                            ):
-                                await file.write(chunk)
-                                downloaded_size += len(chunk)
-                                progress = (
-                                    int((downloaded_size / total_size) * 25)
-                                    if total_size
-                                    else 0
-                                )
-                                task_store.update_task(task_id, {"progress": progress})
+                            async with aiofiles.open(filepath, "wb") as file:
+                                try:
+                                    async for (
+                                        chunk
+                                    ) in download_response.content.iter_chunked(
+                                        CHUNK_SIZE
+                                    ):
+                                        await file.write(chunk)
+                                        downloaded_size += len(chunk)
+                                        progress = (
+                                            int((downloaded_size / total_size) * 25)
+                                            if total_size
+                                            else 0
+                                        )
+                                        task_store.update_task(
+                                            task_id, {"progress": progress}
+                                        )
+                                        logger.debug(
+                                            f"Downloaded {downloaded_size}/{total_size} bytes"
+                                        )
+                                except asyncio.TimeoutError:
+                                    logger.error(
+                                        f"Timeout while downloading chunks for task {task_id}"
+                                    )
+                                    raise
 
-                        logger.info(f"Download completed for task {task_id}")
-                        return os.path.relpath(filepath)
-                    else:
-                        raise Exception(
-                            f"Failed to download file. Status code: {download_response.status}"
-                        )
-            else:
-                raise Exception(
-                    f"Failed to get download URL. Status code: {response.status}"
-                )
+                            logger.info(f"Download completed for task {task_id}")
+                            return os.path.relpath(filepath)
+                        else:
+                            raise Exception(
+                                f"Failed to download file. Status code: {download_response.status}"
+                            )
+                else:
+                    raise Exception(
+                        f"Failed to get download URL. Status code: {response.status}"
+                    )
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout during download operation for task {task_id}")
+            raise
+        except Exception as e:
+            logger.error(f"Download failed for task {task_id}: {str(e)}")
+            raise
 
 
 async def deepzoom(path: str):
@@ -238,10 +274,10 @@ async def deepzoom(path: str):
     """
 
     def process_image():
+        logger.info(f"Creating DeepZoom pyramid for {path}")
         image = pyvips.Image.new_from_file(path)
-        output_dir = os.path.abspath(os.path.join("temp", "outputs"))
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, os.path.basename(path))
+        os.makedirs(OUTPUTS_DIR, exist_ok=True)
+        output_path = os.path.join(OUTPUTS_DIR, os.path.basename(path))
         image.dzsave(output_path)
         return output_path + ".dzi"
 
@@ -250,9 +286,6 @@ async def deepzoom(path: str):
 
 
 async def upload_zip(upload_path: str, zip_path: str, token: str):
-    """
-    Asynchronous definition for uploading zip file to EBrains hosted bucket
-    """
     url = f"https://data-proxy.ebrains.eu/api/v1/buckets/{upload_path}"
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -270,18 +303,36 @@ async def upload_zip(upload_path: str, zip_path: str, token: str):
                     status_code=400, detail="Upload URL not provided in response"
                 )
 
-            print(f"Uploading to {upload_url}")
-            async with aiofiles.open(zip_path, "rb") as file:
-                file_data = await file.read()
-                async with session.put(upload_url, data=file_data) as upload_response:
-                    if upload_response.status == 201:
-                        print(f"Created in {upload_path}")
-                        return f"Created in {upload_path}"
-                    else:
+        logger.info(f"Uploading to {upload_url}")
+
+        # Use chunked upload, as bigger files crashed!
+        async with aiofiles.open(zip_path, "rb") as file:
+            total_size = os.path.getsize(zip_path)
+            uploaded_size = 0
+
+            while True:
+                chunk = await file.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+
+                headers = {
+                    "Content-Range": f"bytes {uploaded_size}-{uploaded_size + len(chunk) - 1}/{total_size}",
+                    "Content-Length": str(len(chunk)),
+                }
+
+                async with session.put(
+                    upload_url, data=chunk, headers=headers
+                ) as upload_response:
+                    if upload_response.status not in [200, 201, 206]:
                         raise HTTPException(
                             status_code=upload_response.status,
-                            detail="Failed to upload file",
+                            detail="Failed to upload chunk",
                         )
+
+                uploaded_size += len(chunk)
+                logger.debug(f"Uploaded {uploaded_size}/{total_size} bytes")
+
+        return f"Created in {upload_path}"
 
 
 async def zip_pyramid(path: str):
@@ -314,6 +365,7 @@ async def cleanup_files(download_path: str, dzi_path: str, zip_path: str):
     Asynchronously remove temporary files after processing
     """
     try:
+        download_path = os.path.join(DOWNLOADS_DIR, os.path.basename(download_path))
         if await path.exists(download_path):
             await remove(download_path)
 
@@ -390,3 +442,46 @@ async def get_task_status(task_id: str):
     except Exception as e:
         logger.error(f"Error getting task status: {str(e)}", exc_info=True)
         raise
+
+
+# Reporting related dashboard stuff
+
+
+# Currently to provide internal access only
+async def verify_ebrains_token(token: str) -> bool:
+    """Verify token and check if email ends with @medisin.uio.no"""
+    url = "https://iam.ebrains.eu/auth/realms/hbp/protocol/openid-connect/userinfo"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(
+            url, headers={"Authorization": f"Bearer {token}"}
+        ) as response:
+            if response.status == 200:
+                data = await response.json()
+                return data.get("email", "").endswith("@medisin.uio.no")
+    return False
+
+
+@app.get("/deepzoom/tasks")
+async def get_all_tasks(request: Request):
+    try:
+        # Get token from Authorization header
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Missing or invalid token")
+
+        token = auth_header.split(" ")[1]
+
+        is_authorized = await verify_ebrains_token(token)
+        if not is_authorized:
+            raise HTTPException(status_code=403, detail="Unauthorized email domain")
+
+        task_manager.task_store.cleanup_old_tasks()
+
+        return {
+            "tasks": task_manager.task_store.tasks,
+            "total": len(task_manager.task_store.tasks),
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting tasks: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
