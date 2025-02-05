@@ -23,9 +23,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constants
-CHUNK_SIZE = 16 * 1024 * 1024
+CHUNK_SIZE = 64 * 1024 * 1024
 # To increase download stream speed
-
+DATA_ROOT = "/data"
+DOWNLOADS_DIR = os.path.join(DATA_ROOT, "downloads")
+OUTPUTS_DIR = os.path.join(DATA_ROOT, "outputs")
 
 app = FastAPI()
 
@@ -195,9 +197,9 @@ async def get_download(path: str, token: str, task_id: str, task_store: TaskStor
                 if not download_url:
                     raise Exception("Download URL not provided in response")
 
-                await makedirs("temp/downloads", exist_ok=True)
+                await makedirs(DOWNLOADS_DIR, exist_ok=True)
                 filename = os.path.basename(path)
-                filepath = os.path.join("temp/downloads", filename)
+                filepath = os.path.join(DOWNLOADS_DIR, filename)
 
                 async with session.get(download_url) as download_response:
                     if download_response.status == 200:
@@ -238,10 +240,10 @@ async def deepzoom(path: str):
     """
 
     def process_image():
+        logger.info(f"Creating DeepZoom pyramid for {path}")
         image = pyvips.Image.new_from_file(path)
-        output_dir = os.path.abspath(os.path.join("temp", "outputs"))
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, os.path.basename(path))
+        os.makedirs(OUTPUTS_DIR, exist_ok=True)
+        output_path = os.path.join(OUTPUTS_DIR, os.path.basename(path))
         image.dzsave(output_path)
         return output_path + ".dzi"
 
@@ -270,6 +272,7 @@ async def upload_zip(upload_path: str, zip_path: str, token: str):
                     status_code=400, detail="Upload URL not provided in response"
                 )
 
+            logger.info(f"Uploading to {upload_url}")
             print(f"Uploading to {upload_url}")
             async with aiofiles.open(zip_path, "rb") as file:
                 file_data = await file.read()
@@ -314,6 +317,7 @@ async def cleanup_files(download_path: str, dzi_path: str, zip_path: str):
     Asynchronously remove temporary files after processing
     """
     try:
+        download_path = os.path.join(DOWNLOADS_DIR, os.path.basename(download_path))
         if await path.exists(download_path):
             await remove(download_path)
 
