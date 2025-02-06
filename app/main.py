@@ -161,7 +161,7 @@ class TaskManager:
 
                 # Cleanup
                 await cleanup_files(
-                    os.path.join("temp/downloads", os.path.basename(path)),
+                    os.path.join("data/downloads", os.path.basename(path)),
                     dzi_path,
                     zip_path,
                 )
@@ -178,7 +178,7 @@ class TaskManager:
                     },
                 )
                 await cleanup_files(
-                    os.path.join("temp/downloads", os.path.basename(path)),
+                    os.path.join(DOWNLOADS_DIR, os.path.basename(path)),
                     dzi_path if "dzi_path" in locals() else None,
                     zip_path if "zip_path" in locals() else None,
                 )
@@ -290,49 +290,26 @@ async def upload_zip(upload_path: str, zip_path: str, token: str):
     headers = {"Authorization": f"Bearer {token}"}
 
     async with aiohttp.ClientSession() as session:
-        # Get the upload URL
         async with session.put(url, headers=headers) as response:
-            if response.status != 200:
-                raise HTTPException(
-                    status_code=response.status, detail="Failed to get upload URL"
-                )
             data = await response.json()
             upload_url = data.get("url")
-            if not upload_url:
+
+        # Create async generator for streaming
+        async def file_sender():
+            async with aiofiles.open(zip_path, "rb") as f:
+                while chunk := await f.read(CHUNK_SIZE):
+                    yield chunk
+
+        # Stream upload using generator
+        async with session.put(
+            upload_url, data=file_sender(), headers=headers
+        ) as upload_response:
+            if upload_response.status not in [200, 201]:
                 raise HTTPException(
-                    status_code=400, detail="Upload URL not provided in response"
+                    status_code=upload_response.status, detail="Upload failed"
                 )
 
-        logger.info(f"Uploading to {upload_url}")
-
-        # Use chunked upload, as bigger files crashed!
-        async with aiofiles.open(zip_path, "rb") as file:
-            total_size = os.path.getsize(zip_path)
-            uploaded_size = 0
-
-            while True:
-                chunk = await file.read(CHUNK_SIZE)
-                if not chunk:
-                    break
-
-                headers = {
-                    "Content-Range": f"bytes {uploaded_size}-{uploaded_size + len(chunk) - 1}/{total_size}",
-                    "Content-Length": str(len(chunk)),
-                }
-
-                async with session.put(
-                    upload_url, data=chunk, headers=headers
-                ) as upload_response:
-                    if upload_response.status not in [200, 201, 206]:
-                        raise HTTPException(
-                            status_code=upload_response.status,
-                            detail="Failed to upload chunk",
-                        )
-
-                uploaded_size += len(chunk)
-                logger.debug(f"Uploaded {uploaded_size}/{total_size} bytes")
-
-        return f"Created in {upload_path}"
+    return f"Created in {upload_path}"
 
 
 async def zip_pyramid(path: str):
