@@ -51,11 +51,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# TODO Threaded test for performance
+
 # TODO Add origins
-# TODO Add token and user validation
-
-
 class TaskStore:
     """
     Manages tasks and their statuses
