@@ -36,6 +36,7 @@ logging.basicConfig(
         logging.FileHandler(os.path.join(DATA_ROOT, "deepzoom.log")),
     ],
 )
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI()
