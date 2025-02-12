@@ -14,14 +14,6 @@ from typing import Dict, Optional
 import logging
 import sys
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler("deepzoom.log")],
-)
-logger = logging.getLogger(__name__)
-
 # Constants
 DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(
     total=3600,  # 1 hour total timeout, mainly an issue with large file downloads
@@ -34,6 +26,17 @@ CHUNK_SIZE = 32 * 1024 * 1024
 DATA_ROOT = "/data"
 DOWNLOADS_DIR = os.path.join(DATA_ROOT, "downloads")
 OUTPUTS_DIR = os.path.join(DATA_ROOT, "outputs")
+
+# Update the logging configuration to use /data directory
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(os.path.join(DATA_ROOT, "deepzoom.log")),
+    ],
+)
+
 
 app = FastAPI()
 
