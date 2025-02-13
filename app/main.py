@@ -99,9 +99,9 @@ class TaskStore:
 
 class TaskManager:
     def __init__(self):
-        self.semaphore = asyncio.Semaphore(6)
+        self.semaphore = asyncio.Semaphore(12)
         self.task_store = TaskStore()
-        logger.info("TaskManager initialized")
+        logger.info("TaskManager initialized with", self.semaphore)
 
     async def add_task(self, task_id: str, path: str, target_path: str, token: str):
         self.task_store.add_task(task_id, {"path": path, "target_path": target_path})
