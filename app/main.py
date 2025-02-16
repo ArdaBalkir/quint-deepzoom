@@ -13,6 +13,9 @@ import uuid
 from typing import Dict, Optional
 import logging
 import sys
+from concurrent.futures import (
+    ProcessPoolExecutor,
+)  # Pool Executor experimentation for the use of process pool
 
 # Constants
 DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(
@@ -98,10 +101,17 @@ class TaskStore:
 
 
 class TaskManager:
+
+    SEMAPHORE_WORKER = 12
+
     def __init__(self):
-        self.semaphore = asyncio.Semaphore(12)
+        self.semaphore = asyncio.Semaphore(self.SEMAPHORE_WORKER)
         self.task_store = TaskStore()
-        logger.info("TaskManager initialized with", self.semaphore)
+        # Initialize ProcessPoolExecutor with 4 workers
+        self.process_pool = ProcessPoolExecutor(
+            max_workers=4
+        )  # ADDED PROCESS POOL INITIALIZATION, was using the default before
+        logger.info("TaskManager initialized with %d workers", self.SEMAPHORE_WORKER)
 
     async def add_task(self, task_id: str, path: str, target_path: str, token: str):
         self.task_store.add_task(task_id, {"path": path, "target_path": target_path})
@@ -127,17 +137,21 @@ class TaskManager:
                     path, token, task_id, self.task_store
                 )
 
-                # DeepZoom
+                # DeepZoom - MODIFIED to use process pool
                 self.task_store.update_task(
                     task_id, {"current_step": "creating_deepzoom", "progress": 25}
                 )
-                dzi_path = await deepzoom(download_path)
+                dzi_path = await self._run_in_process_pool(
+                    self._deepzoom_sync, download_path
+                )  # MODIFIED CALL
 
-                # Zip
+                # Zip - MODIFIED to use process pool
                 self.task_store.update_task(
                     task_id, {"current_step": "compressing", "progress": 50}
                 )
-                zip_path = await zip_pyramid(dzi_path)
+                zip_path = await self._run_in_process_pool(
+                    self._zip_pyramid_sync, dzi_path
+                )  # MODIFIED CALL
 
                 # Upload
                 self.task_store.update_task(
@@ -183,6 +197,48 @@ class TaskManager:
                     dzi_path if "dzi_path" in locals() else None,
                     zip_path if "zip_path" in locals() else None,
                 )
+
+    # Helper function to run sync functions in process pool - ADDED
+    async def _run_in_process_pool(self, func, *args, **kwargs):
+        """Runs a synchronous function in the process pool."""
+        loop = asyncio.get_event_loop()
+        partial_func = partial(
+            func, *args, **kwargs
+        )  # Use functools.partial - IMPORT functools if not already imported
+        return await loop.run_in_executor(self.process_pool, partial_func)
+
+    def _deepzoom_sync(self, path: str):  # Renamed to be synchronous - ADDED
+        """
+        Creates a DeepZoom pyramid from the image file specified
+        Runs in a process pool to bypass GIL
+        """
+        logger.info(
+            f"Creating DeepZoom pyramid for {path} in process pool"
+        )  # Log to differentiate
+        image = pyvips.Image.new_from_file(path)
+        os.makedirs(OUTPUTS_DIR, exist_ok=True)
+        output_path = os.path.join(OUTPUTS_DIR, os.path.basename(path))
+        image.dzsave(output_path)
+        return output_path + ".dzi"
+
+    def _zip_pyramid_sync(self, path: str):  # Renamed to be synchronous - ADDED
+        """
+        Function zips the pyramid files with a .dzip extension
+        Runs in a process pool to bypass GIL
+        """
+        dzi_file = path
+        dzi_dir = os.path.splitext(dzi_file)[0] + "_files"
+        strip_file_name = os.path.basename(os.path.splitext(dzi_file)[0])
+        zip_path = f"{os.path.dirname(dzi_file)}/{strip_file_name}.dzip"
+
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+            zipf.write(dzi_file, os.path.basename(dzi_file))
+            for root, _, files in os.walk(dzi_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, os.path.dirname(dzi_dir))
+                    zipf.write(file_path, arcname)
+        return zip_path
 
 
 # Initialize global task manager
@@ -268,22 +324,25 @@ async def get_download(path: str, token: str, task_id: str, task_store: TaskStor
             raise
 
 
-async def deepzoom(path: str):
+def deepzoom(path: str):
     """
     Creates a DeepZoom pyramid from the image file specified
-    Runs in a thread pool since pyvips operations are CPU-bound
+    Now a sync wrapper that calls process pool via task_manager
     """
+    return task_manager._run_in_process_pool(
+        task_manager._deepzoom_sync, path
+    )  # MODIFIED to call via process pool
 
-    def process_image():
-        logger.info(f"Creating DeepZoom pyramid for {path}")
-        image = pyvips.Image.new_from_file(path)
-        os.makedirs(OUTPUTS_DIR, exist_ok=True)
-        output_path = os.path.join(OUTPUTS_DIR, os.path.basename(path))
-        image.dzsave(output_path)
-        return output_path + ".dzi"
 
-    # Run CPU-intensive task in a thread pool
-    return await asyncio.to_thread(process_image)
+# removed async, now calls task_manager's _run_in_process_pool
+def zip_pyramid(path: str):
+    """
+    Function zips the pyramid files with a .dzip extension
+    Now a sync wrapper that calls process pool via task_manager
+    """
+    return task_manager._run_in_process_pool(
+        task_manager._zip_pyramid_sync, path
+    )  # MODIFIED to call via process pool
 
 
 async def upload_zip(upload_path: str, zip_path: str, token: str):
@@ -319,31 +378,6 @@ async def upload_zip(upload_path: str, zip_path: str, token: str):
                             status_code=upload_response.status,
                             detail="Failed to upload file",
                         )
-
-
-async def zip_pyramid(path: str):
-    """
-    Function zips the pyramid files with a .dzip extension
-    Runs in a thread pool since compression is CPU-bound
-    """
-
-    def create_zip():
-        dzi_file = path
-        dzi_dir = os.path.splitext(dzi_file)[0] + "_files"
-        strip_file_name = os.path.basename(os.path.splitext(dzi_file)[0])
-        zip_path = f"{os.path.dirname(dzi_file)}/{strip_file_name}.dzip"
-
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-            zipf.write(dzi_file, os.path.basename(dzi_file))
-            for root, _, files in os.walk(dzi_dir):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, os.path.dirname(dzi_dir))
-                    zipf.write(file_path, arcname)
-        return zip_path
-
-    # Run CPU-intensive task in a thread pool
-    return await asyncio.to_thread(create_zip)
 
 
 async def cleanup_files(download_path: str, dzi_path: str, zip_path: str):
