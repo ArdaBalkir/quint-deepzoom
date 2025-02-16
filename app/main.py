@@ -203,9 +203,7 @@ class TaskManager:
     async def _run_in_process_pool(self, func, *args, **kwargs):
         """Runs a synchronous function in the process pool."""
         loop = asyncio.get_event_loop()
-        partial_func = partial(
-            func, *args, **kwargs
-        )  # Use functools.partial - IMPORT functools if not already imported
+        partial_func = partial(func, *args, **kwargs)
         return await loop.run_in_executor(self.process_pool, partial_func)
 
     def _deepzoom_sync(self, path: str):  # Renamed to be synchronous - ADDED
