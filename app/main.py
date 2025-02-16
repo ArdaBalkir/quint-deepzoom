@@ -13,6 +13,7 @@ import uuid
 from typing import Dict, Optional
 import logging
 import sys
+from functools import partial
 from concurrent.futures import (
     ProcessPoolExecutor,
 )  # Pool Executor experimentation for the use of process pool
