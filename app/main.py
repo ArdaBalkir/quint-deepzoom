@@ -14,14 +14,6 @@ from typing import Dict, Optional
 import logging
 import sys
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler("deepzoom.log")],
-)
-logger = logging.getLogger(__name__)
-
 # Constants
 DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(
     total=3600,  # 1 hour total timeout, mainly an issue with large file downloads
@@ -35,6 +27,18 @@ DATA_ROOT = "/data"
 DOWNLOADS_DIR = os.path.join(DATA_ROOT, "downloads")
 OUTPUTS_DIR = os.path.join(DATA_ROOT, "outputs")
 
+# Update the logging configuration to use /data directory
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(os.path.join(DATA_ROOT, "deepzoom.log")),
+    ],
+)
+logger = logging.getLogger(__name__)
+
+
 app = FastAPI()
 
 origins = ["*"]
@@ -47,11 +51,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# TODO Threaded test for performance
+
 # TODO Add origins
-# TODO Add token and user validation
-
-
 class TaskStore:
     """
     Manages tasks and their statuses
@@ -98,9 +99,9 @@ class TaskStore:
 
 class TaskManager:
     def __init__(self):
-        self.semaphore = asyncio.Semaphore(6)
+        self.semaphore = asyncio.Semaphore(12)
         self.task_store = TaskStore()
-        logger.info("TaskManager initialized")
+        logger.info("TaskManager initialized with", self.semaphore)
 
     async def add_task(self, task_id: str, path: str, target_path: str, token: str):
         self.task_store.add_task(task_id, {"path": path, "target_path": target_path})
@@ -286,30 +287,38 @@ async def deepzoom(path: str):
 
 
 async def upload_zip(upload_path: str, zip_path: str, token: str):
+    """
+    Asynchronous definition for uploading zip file to EBrains hosted bucket
+    """
     url = f"https://data-proxy.ebrains.eu/api/v1/buckets/{upload_path}"
     headers = {"Authorization": f"Bearer {token}"}
 
     async with aiohttp.ClientSession() as session:
+        # Get the upload URL
         async with session.put(url, headers=headers) as response:
+            if response.status != 200:
+                raise HTTPException(
+                    status_code=response.status, detail="Failed to get upload URL"
+                )
             data = await response.json()
             upload_url = data.get("url")
-
-        # Create async generator for streaming
-        async def file_sender():
-            async with aiofiles.open(zip_path, "rb") as f:
-                while chunk := await f.read(CHUNK_SIZE):
-                    yield chunk
-
-        # Stream upload using generator
-        async with session.put(
-            upload_url, data=file_sender(), headers=headers
-        ) as upload_response:
-            if upload_response.status not in [200, 201]:
+            if not upload_url:
                 raise HTTPException(
-                    status_code=upload_response.status, detail="Upload failed"
+                    status_code=400, detail="Upload URL not provided in response"
                 )
 
-    return f"Created in {upload_path}"
+            print(f"Uploading to {upload_url}")
+            async with aiofiles.open(zip_path, "rb") as file:
+                file_data = await file.read()
+                async with session.put(upload_url, data=file_data) as upload_response:
+                    if upload_response.status == 201:
+                        print(f"Created in {upload_path}")
+                        return f"Created in {upload_path}"
+                    else:
+                        raise HTTPException(
+                            status_code=upload_response.status,
+                            detail="Failed to upload file",
+                        )
 
 
 async def zip_pyramid(path: str):
