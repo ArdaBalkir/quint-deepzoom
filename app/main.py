@@ -21,7 +21,7 @@ DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(
     sock_connect=60,  # 60 seconds to establish connection
     sock_read=300,  # 5 minutes socket read timeout
 )
-CHUNK_SIZE = 32 * 1024 * 1024
+CHUNK_SIZE = 64 * 1024 * 1024
 # To increase download stream speed
 DATA_ROOT = "/data"
 DOWNLOADS_DIR = os.path.join(DATA_ROOT, "downloads")
@@ -33,7 +33,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(os.path.join(DATA_ROOT, "deepzoom.log")),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -98,10 +97,13 @@ class TaskStore:
 
 
 class TaskManager:
+
+    PROCESS_WORKERS = 8
+
     def __init__(self):
-        self.semaphore = asyncio.Semaphore(12)
+        self.semaphore = asyncio.Semaphore(self.PROCESS_WORKERS)
         self.task_store = TaskStore()
-        logger.info("TaskManager initialized with", self.semaphore)
+        logger.info("TaskManager initialized with %d workers", self.PROCESS_WORKERS)
 
     async def add_task(self, task_id: str, path: str, target_path: str, token: str):
         self.task_store.add_task(task_id, {"path": path, "target_path": target_path})
