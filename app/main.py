@@ -6,6 +6,7 @@ import zipfile
 import aiohttp
 import aiofiles
 import asyncio
+from io import BytesIO
 from aiofiles.os import makedirs, remove, path
 import shutil
 from datetime import datetime, timedelta
@@ -335,13 +336,19 @@ async def zip_pyramid(path: str):
         strip_file_name = os.path.basename(os.path.splitext(dzi_file)[0])
         zip_path = f"{os.path.dirname(dzi_file)}/{strip_file_name}.dzip"
 
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+        # Switched to using BytesIO for now
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
             zipf.write(dzi_file, os.path.basename(dzi_file))
             for root, _, files in os.walk(dzi_dir):
                 for file in files:
                     file_path = os.path.join(root, file)
                     arcname = os.path.relpath(file_path, os.path.dirname(dzi_dir))
                     zipf.write(file_path, arcname)
+
+        # Write the buffer to disk only once
+        with open(zip_path, "wb") as f:
+            f.write(zip_buffer.getvalue())
         return zip_path
 
     # Run CPU-intensive task in a thread pool
