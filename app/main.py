@@ -6,6 +6,7 @@ import zipfile
 import aiohttp
 import aiofiles
 import asyncio
+from io import BytesIO
 from aiofiles.os import makedirs, remove, path
 import shutil
 from datetime import datetime, timedelta
@@ -21,7 +22,7 @@ DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(
     sock_connect=60,  # 60 seconds to establish connection
     sock_read=300,  # 5 minutes socket read timeout
 )
-CHUNK_SIZE = 32 * 1024 * 1024
+CHUNK_SIZE = 64 * 1024 * 1024
 # To increase download stream speed
 DATA_ROOT = "/data"
 DOWNLOADS_DIR = os.path.join(DATA_ROOT, "downloads")
@@ -33,7 +34,6 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler(os.path.join(DATA_ROOT, "deepzoom.log")),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -98,10 +98,13 @@ class TaskStore:
 
 
 class TaskManager:
+
+    PROCESS_WORKERS = 8
+
     def __init__(self):
-        self.semaphore = asyncio.Semaphore(12)
+        self.semaphore = asyncio.Semaphore(self.PROCESS_WORKERS)
         self.task_store = TaskStore()
-        logger.info("TaskManager initialized with", self.semaphore)
+        logger.info("TaskManager initialized with %d workers", self.PROCESS_WORKERS)
 
     async def add_task(self, task_id: str, path: str, target_path: str, token: str):
         self.task_store.add_task(task_id, {"path": path, "target_path": target_path})
@@ -333,13 +336,19 @@ async def zip_pyramid(path: str):
         strip_file_name = os.path.basename(os.path.splitext(dzi_file)[0])
         zip_path = f"{os.path.dirname(dzi_file)}/{strip_file_name}.dzip"
 
-        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+        # Switched to using BytesIO for now
+        zip_buffer = BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
             zipf.write(dzi_file, os.path.basename(dzi_file))
             for root, _, files in os.walk(dzi_dir):
                 for file in files:
                     file_path = os.path.join(root, file)
                     arcname = os.path.relpath(file_path, os.path.dirname(dzi_dir))
                     zipf.write(file_path, arcname)
+
+        # Write the buffer to disk only once
+        with open(zip_path, "wb") as f:
+            f.write(zip_buffer.getvalue())
         return zip_path
 
     # Run CPU-intensive task in a thread pool
