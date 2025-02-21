@@ -4,4 +4,6 @@ class Settings:
     DATA_DIR = "/data"
 
 
+# The redis is optional, will be further investigated perhaps
+
 settings = Settings()
