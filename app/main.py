@@ -99,7 +99,7 @@ class TaskStore:
 
 class TaskManager:
 
-    PROCESS_WORKERS = 8
+    PROCESS_WORKERS = 12
 
     def __init__(self):
         self.semaphore = asyncio.Semaphore(self.PROCESS_WORKERS)
@@ -338,7 +338,9 @@ async def zip_pyramid(path: str):
 
         # Switched to using BytesIO for now
         zip_buffer = BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
+        with zipfile.ZipFile(
+            zip_buffer, "w", zipfile.ZIP_STORED
+        ) as zipf:  # Changed here to ZIP_STORED as the compression leve is 0 and our use case is different
             zipf.write(dzi_file, os.path.basename(dzi_file))
             for root, _, files in os.walk(dzi_dir):
                 for file in files:
