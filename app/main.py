@@ -99,7 +99,7 @@ class TaskStore:
 
 class TaskManager:
 
-    PROCESS_WORKERS = 8
+    PROCESS_WORKERS = 12
 
     def __init__(self):
         self.semaphore = asyncio.Semaphore(self.PROCESS_WORKERS)
