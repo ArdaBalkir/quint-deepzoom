@@ -1,5 +1,5 @@
 # Build stage
-FROM python:3.9-slim as builder
+FROM python:3.9-slim AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -35,7 +35,7 @@ RUN mkdir -p /data && chmod 777 /data
 VOLUME [ "/data" ]
 
 # Copy application code
-COPY . .
+COPY ./app ./app
 
 EXPOSE 8000
 
