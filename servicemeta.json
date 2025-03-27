@@ -1,0 +1,24 @@
+{
+  "@context": "https://servicemeta.apps.tc.humanbrainproject.eu/context/servicemeta.jsonld",
+  "type": "WebApplication",
+  "inputFormat": ["json", "tiff", "jpeg", "png", "jpg"],
+  "outputFormat": ["json", "dzip"],
+  "alternateName": "deepzoom API",
+  "author": [
+    {
+      "id": "https://orcid.org/0009-0009-3003-7860",
+      "type": "Person",
+      "affiliation": {
+        "type": "Organization",
+        "name": "University of Oslo, Medical Faculty, Anatomy, NeSys, Researcher"
+      },
+      "email": "arda.balkir@medisin.uio.no",
+      "familyName": "Balkir",
+      "givenName": "Arda"
+    }
+  ],
+  "documentation": "https://github.com/Neural-Systems-at-UIO/quint-deepzoom/blob/main/README.md",
+  "name": "deepzoom",
+  "url": "https://deepzoom.apps.ebrains.eu/",
+  "version": "1.0.8"
+}
