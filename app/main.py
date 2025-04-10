@@ -41,7 +41,10 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-origins = ["*"]
+# Parse comma-separated string, default to ["*"] if not set
+origins_str = os.environ.get("ALLOWED_ORIGINS", "*")
+origins = [origin.strip() for origin in origins_str.split(",")]
+logger.info(f"Configuring CORS with allowed origins: {origins}")
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,7 +55,6 @@ app.add_middleware(
 )
 
 
-# TODO Add origins
 class TaskStore:
     """
     Manages tasks and their statuses
