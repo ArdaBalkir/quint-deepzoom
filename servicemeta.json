@@ -17,9 +17,9 @@
       "givenName": "Arda"
     }
   ],
-  "documentation": "https://github.com/Neural-Systems-at-UIO/quint-deepzoom/blob/main/README.md",
+  "documentation": "https://github.com/Neural-Systems-at-UIO/CreateZoom/blob/main/README.md",
   "identifier": "RRID:SCR_026625",
-  "name": "deepzoom",
+  "name": "CreateZoom",
   "url": "https://deepzoom.apps.ebrains.eu/",
   "version": "1.0.8"
 }
