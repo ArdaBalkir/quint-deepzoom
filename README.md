@@ -1,4 +1,4 @@
-## DeepZoom API
+## CreateZoom API
 
 ### Pyramiding
 
@@ -47,7 +47,7 @@ sequenceDiagram
 
     Note over TaskManager: Async Processing
     Bucket->>TaskManager: Download image
-    TaskManager->>Storage: Create DeepZoom
+    TaskManager->>Storage: Create DeepZoomImage
     TaskManager->>Storage: Zip store
     TaskManager->>Bucket: Upload result
     TaskManager->>TaskStore: Update status
