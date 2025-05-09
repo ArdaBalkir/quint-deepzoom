@@ -351,6 +351,8 @@ async def zip_pyramid(path: str):
         # Write the buffer to disk only once
         with open(zip_path, "wb") as f:
             f.write(zip_buffer.getvalue())
+        
+        zip_buffer.close()
         return zip_path
 
     # Run CPU-intensive task in a thread pool
