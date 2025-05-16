@@ -314,9 +314,11 @@ async def upload_zip(upload_path: str, zip_path: str, token: str):
             async with aiofiles.open(zip_path, "rb") as file:
                 file_data = await file.read()
                 async with session.put(upload_url, data=file_data) as upload_response:
-                    if upload_response.status == 201:
-                        print(f"Created in {upload_path}")
-                        return f"Created in {upload_path}"
+                    if upload_response.status == 201 or upload_response.status == 200:
+                        print(
+                            f"Upload successful to {upload_path} with status {upload_response.status}"
+                        )
+                        return f"Uploaded to {upload_path}"
                     else:
                         raise HTTPException(
                             status_code=upload_response.status,
@@ -336,21 +338,23 @@ async def zip_pyramid(path: str):
         strip_file_name = os.path.basename(os.path.splitext(dzi_file)[0])
         zip_path = f"{os.path.dirname(dzi_file)}/{strip_file_name}.dzip"
 
-        # Switched to using BytesIO for now
         zip_buffer = BytesIO()
-        with zipfile.ZipFile(
-            zip_buffer, "w", zipfile.ZIP_STORED
-        ) as zipf:  # Changed here to ZIP_STORED as the compression leve is 0 and our use case is different
-            zipf.write(dzi_file, os.path.basename(dzi_file))
-            for root, _, files in os.walk(dzi_dir):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, os.path.dirname(dzi_dir))
-                    zipf.write(file_path, arcname)
+        try:
+            with zipfile.ZipFile(
+                zip_buffer, "w", zipfile.ZIP_STORED
+            ) as zipf:  # Changed here to ZIP_STORED as the compression level is 0 and our use case is different
+                zipf.write(dzi_file, os.path.basename(dzi_file))
+                for root, _, files in os.walk(dzi_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path, os.path.dirname(dzi_dir))
+                        zipf.write(file_path, arcname)
 
-        # Write the buffer to disk only once
-        with open(zip_path, "wb") as f:
-            f.write(zip_buffer.getvalue())
+            # Write the buffer to disk only once
+            with open(zip_path, "wb") as f:
+                f.write(zip_buffer.getvalue())
+        finally:
+            zip_buffer.close()  # Explicitly close the BytesIO object to free its buffer
         return zip_path
 
     # Run CPU-intensive task in a thread pool
