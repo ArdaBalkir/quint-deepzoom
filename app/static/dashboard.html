@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepZoom Task Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .task-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .task-card {
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            padding: 15px;
+            width: 300px;
+            transition: transform 0.2s;
+        }
+
+        .task-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+
+        .task-id {
+            font-size: 0.8em;
+            color: #666;
+            word-break: break-all;
+        }
+
+        .progress-bar {
+            width: 100%;
+            background-color: #e0e0e0;
+            border-radius: 5px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress {
+            height: 10px;
+            background-color: #3498db;
+            transition: width 0.5s;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+
+        .pending {
+            background-color: #f39c12;
+            color: white;
+        }
+
+        .processing {
+            background-color: #3498db;
+            color: white;
+        }
+
+        .completed {
+            background-color: #2ecc71;
+            color: white;
+        }
+
+        .failed {
+            background-color: #e74c3c;
+            color: white;
+        }
+
+        .queued {
+            background-color: #9b59b6;
+            color: white;
+        }
+
+        .details {
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+
+        .detail-item {
+            margin-bottom: 5px;
+        }
+
+        .token-input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        .button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .button:hover {
+            background-color: #2980b9;
+        }
+
+        .filters {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .filter {
+            border: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .filter.active {
+            background-color: #3498db;
+            color: white;
+        }
+
+        .error {
+            color: #e74c3c;
+            margin-top: 5px;
+            font-size: 0.9em;
+        }
+
+        .time {
+            font-size: 0.8em;
+            color: #888;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>DeepZoom Task Dashboard</h1>
+        <p>Monitor and manage DeepZoom processing tasks</p>
+    </div>
+
+    <div>
+        <input type="text" id="token" class="token-input" placeholder="Enter your EBrains Bearer token">
+        <button id="loadTasks" class="button">Load Tasks</button>
+    </div>
+
+    <div class="filters">
+        <button class="filter active" data-filter="all">All</button>
+        <button class="filter" data-filter="pending">Pending</button>
+        <button class="filter" data-filter="queued">Queued</button>
+        <button class="filter" data-filter="processing">Processing</button>
+        <button class="filter" data-filter="completed">Completed</button>
+        <button class="filter" data-filter="failed">Failed</button>
+    </div>
+
+    <div id="task-container" class="task-container">
+        <!-- Tasks will be displayed here -->
+        <p>Enter your EBrains token to load tasks...</p>
+    </div>
+
+    <script>
+        const API_URL = window.location.origin; // Assuming dashboard is served from the same domain
+        let currentFilter = 'all';
+        let tasks = [];
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Set up event listeners
+            document.getElementById('loadTasks').addEventListener('click', loadTasks);
+
+            // Set up filter buttons
+            document.querySelectorAll('.filter').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    document.querySelectorAll('.filter').forEach(b => b.classList.remove('active'));
+                    e.target.classList.add('active');
+                    currentFilter = e.target.dataset.filter;
+                    renderTasks(tasks);
+                });
+            });
+        });
+
+        async function loadTasks() {
+            const token = document.getElementById('token').value;
+            if (!token) {
+                alert('Please enter your EBrains token');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/deepzoom/tasks`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (!response.ok) {
+                    if (response.status === 403) {
+                        throw new Error('Unauthorized: You do not have permission to access this resource.');
+                    } else {
+                        throw new Error(`Error ${response.status}: ${response.statusText}`);
+                    }
+                }
+
+                const data = await response.json();
+                tasks = Object.entries(data.tasks).map(([id, task]) => ({
+                    id,
+                    ...task
+                }));
+
+                renderTasks(tasks);
+
+                // Set up auto-refresh
+                setTimeout(() => loadTasks(), 30000); // Refresh every 30 seconds
+
+            } catch (error) {
+                document.getElementById('task-container').innerHTML = `
+                    <div class="error">
+                        <p>${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function renderTasks(tasks) {
+            const container = document.getElementById('task-container');
+
+            if (tasks.length === 0) {
+                container.innerHTML = '<p>No tasks found.</p>';
+                return;
+            }
+
+            // Filter tasks based on current filter
+            const filteredTasks = currentFilter === 'all'
+                ? tasks
+                : tasks.filter(task => task.status === currentFilter);
+
+            if (filteredTasks.length === 0) {
+                container.innerHTML = `<p>No ${currentFilter} tasks found.</p>`;
+                return;
+            }
+
+            // Sort tasks: most recent first
+            filteredTasks.sort((a, b) => {
+                const dateA = new Date(a.created_at);
+                const dateB = new Date(b.created_at);
+                return dateB - dateA;
+            });
+
+            container.innerHTML = filteredTasks.map(task => {
+                const createdDate = new Date(task.created_at);
+                const updatedDate = task.updated_at ? new Date(task.updated_at) : null;
+
+                // Parse step_details if it's a string
+                let stepDetails = task.step_details;
+                if (typeof stepDetails === 'string') {
+                    try {
+                        stepDetails = JSON.parse(stepDetails);
+                    } catch (e) {
+                        stepDetails = { message: task.step_details };
+                    }
+                }
+
+                return `
+                    <div class="task-card">
+                        <div class="task-header">
+                            <span class="status ${task.status}">${task.status}</span>
+                            <span class="time">${formatDate(createdDate)}</span>
+                        </div>
+                        <div class="task-id">${task.id}</div>
+                        <div class="progress-bar">
+                            <div class="progress" style="width: ${task.progress}%"></div>
+                        </div>
+                        <div class="details">
+                            <div class="detail-item"><strong>Step:</strong> ${task.current_step}</div>
+                            <div class="detail-item"><strong>Path:</strong> ${task.path}</div>
+                            <div class="detail-item"><strong>Target:</strong> ${task.target_path}</div>
+                            ${stepDetails && stepDetails.message ?
+                        `<div class="detail-item"><strong>Details:</strong> ${stepDetails.message}</div>` : ''}
+                            ${task.error ?
+                        `<div class="detail-item error"><strong>Error:</strong> ${task.error}</div>` : ''}
+                            ${updatedDate ?
+                        `<div class="time">Last updated: ${formatDate(updatedDate)}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function formatDate(date) {
+            return date.toLocaleString();
+        }
+    </script>
+</body>
+
+</html>

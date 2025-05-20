@@ -1,29 +1,18 @@
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-import pyvips
 import os
-import zipfile
 import aiohttp
-import aiofiles
 import asyncio
-from io import BytesIO
-from aiofiles.os import makedirs, remove, path
-import shutil
-from datetime import datetime, timedelta
 import uuid
+from datetime import datetime, timedelta
 from typing import Dict, Optional
 import logging
 import sys
 
+# Import Redis task store
+from .redis_store import RedisTaskStore, enqueue_task, DOWNLOAD_QUEUE
+
 # Constants
-DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(
-    total=3600,  # 1 hour total timeout, mainly an issue with large file downloads
-    connect=60,  # 60 seconds connect timeout
-    sock_connect=60,  # 60 seconds to establish connection
-    sock_read=300,  # 5 minutes socket read timeout
-)
-CHUNK_SIZE = 64 * 1024 * 1024
-# To increase download stream speed
 DATA_ROOT = "/data"
 DOWNLOADS_DIR = os.path.join(DATA_ROOT, "downloads")
 OUTPUTS_DIR = os.path.join(DATA_ROOT, "outputs")

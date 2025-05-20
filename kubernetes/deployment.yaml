@@ -1,0 +1,285 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deepzoom-config
+data:
+  REDIS_HOST: "deepzoom-redis"
+  REDIS_PORT: "6379"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deepzoom-redis
+spec:
+  selector:
+    app: deepzoom-redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deepzoom-redis
+spec:
+  selector:
+    matchLabels:
+      app: deepzoom-redis
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: deepzoom-redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:6.2-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+      volumes:
+      - name: redis-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deepzoom-api
+spec:
+  selector:
+    app: deepzoom-api
+  ports:
+  - port: 80
+    targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deepzoom-api
+spec:
+  selector:
+    matchLabels:
+      app: deepzoom-api
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: deepzoom-api
+    spec:
+      containers:
+      - name: api
+        image: ${REGISTRY}/deepzoom-api:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: deepzoom-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: deepzoom-config
+              key: REDIS_PORT
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        volumeMounts:
+        - name: shared-data
+          mountPath: /data
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: deepzoom-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deepzoom-downloader
+spec:
+  selector:
+    matchLabels:
+      app: deepzoom-downloader
+  template:
+    metadata:
+      labels:
+        app: deepzoom-downloader
+    spec:
+      containers:
+      - name: downloader
+        image: ${REGISTRY}/deepzoom-downloader:latest
+        env:
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: deepzoom-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: deepzoom-config
+              key: REDIS_PORT
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+        volumeMounts:
+        - name: shared-data
+          mountPath: /data
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: deepzoom-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deepzoom-processor
+spec:
+  selector:
+    matchLabels:
+      app: deepzoom-processor
+  template:
+    metadata:
+      labels:
+        app: deepzoom-processor
+    spec:
+      containers:
+      - name: processor
+        image: ${REGISTRY}/deepzoom-processor:latest
+        env:
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: deepzoom-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: deepzoom-config
+              key: REDIS_PORT
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+        volumeMounts:
+        - name: shared-data
+          mountPath: /data
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: deepzoom-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deepzoom-uploader
+spec:
+  selector:
+    matchLabels:
+      app: deepzoom-uploader
+  template:
+    metadata:
+      labels:
+        app: deepzoom-uploader
+    spec:
+      containers:
+      - name: uploader
+        image: ${REGISTRY}/deepzoom-uploader:latest
+        env:
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: deepzoom-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: deepzoom-config
+              key: REDIS_PORT
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+        volumeMounts:
+        - name: shared-data
+          mountPath: /data
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: deepzoom-pvc
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: deepzoom-downloader-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: deepzoom-downloader
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: deepzoom-processor-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: deepzoom-processor
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: deepzoom-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: standard

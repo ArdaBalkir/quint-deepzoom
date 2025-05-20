@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:6.2-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: api.Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - shared-data:/data
+    restart: unless-stopped
+    command: [ "uvicorn", "app.main_redis:app", "--host", "0.0.0.0", "--port", "8000" ]
+
+  downloader:
+    build:
+      context: .
+      dockerfile: downloader.Dockerfile
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - shared-data:/data
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+
+  processor:
+    build:
+      context: .
+      dockerfile: processor.Dockerfile
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - shared-data:/data
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+
+  uploader:
+    build:
+      context: .
+      dockerfile: uploader.Dockerfile
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - shared-data:/data
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+
+volumes:
+  redis-data: {}
+  shared-data: {}
