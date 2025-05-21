@@ -281,5 +281,5 @@ spec:
     - ReadWriteMany
   resources:
     requests:
-      storage: 20Gi
-  storageClassName: standard
+      storage: 40Gi
+  storageClassName: longhorn-0
