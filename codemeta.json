@@ -1,0 +1,46 @@
+{
+    "@context": "https://w3id.org/codemeta/3.0",
+    "type": "SoftwareSourceCode",
+    "applicationCategory": "Histology",
+    "author": [
+        {
+            "id": "https://orcid.org/0009-0009-3003-7860",
+            "type": "Person",
+            "affiliation": {
+                "type": "Organization",
+                "name": "Neural Systems Laboratory, Institute for Basic Medical Sciences, University of Oslo"
+            },
+            "email": "arda.balkir@medisin.uio.no",
+            "familyName": "Balkir",
+            "givenName": "Arda"
+        }
+    ],
+    "codeRepository": "https://github.com/Neural-Systems-at-UIO/CreateZoom/tree/main",
+    "dateCreated": "2024-10-07",
+    "dateModified": "2025-03-07",
+    "datePublished": "2024-11-06",
+    "description": "CreateZoom is a service for converting large images to DZI format, integrating the EBRAINS data infrastructure",
+    "downloadUrl": "https://github.com/ArdaBalkir/CreateZoom/archive/refs/heads/main.zip",
+    "funder": {
+        "type": "Organization",
+        "name": "University of Oslo"
+    },
+    "identifier": " SCR_026625",
+    "keywords": [
+        "histology",
+        "quint",
+        "neurology",
+        "neuroinformatics",
+        "imaging"
+    ],
+    "license": "https://spdx.org/licenses/MIT",
+    "name": "CreateZoom",
+    "operatingSystem": "Linux",
+    "programmingLanguage": "Python",
+    "runtimePlatform": [
+        "Python",
+        "Docker"
+    ],
+    "version": "1.0.4",
+    "developmentStatus": "wip"
+}
