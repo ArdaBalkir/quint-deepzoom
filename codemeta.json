@@ -20,7 +20,7 @@
     "dateModified": "2025-03-07",
     "datePublished": "2024-11-06",
     "description": "CreateZoom is a service for converting large images to DZI format, integrating the EBRAINS data infrastructure",
-    "downloadUrl": "https://github.com/ArdaBalkir/CreateZoom/archive/refs/heads/main.zip",
+    "downloadUrl": "https://github.com/ArdaBalkir/CreateZoom/archive/refs/tags/1.0.4.zip",
     "funder": {
         "type": "Organization",
         "name": "University of Oslo"
